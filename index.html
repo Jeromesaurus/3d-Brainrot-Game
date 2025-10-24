@@ -6,9 +6,6 @@
     <title>3D Choice Runner</title>
     <!-- Load Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- REMOVED global three.js script -->
-    <!-- REMOVED extra GLTFLoader script -->
-    
     <!-- Load Tone.js (Audio library) --><script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     
     <!-- Add Import Map to define module paths -->
@@ -147,6 +144,8 @@
         const safeZone = 1; // Z-distance from player to check collision
         const laneCheckTolerance = 0.5; // How close player must be to lane center
         const TOTAL_GATES = 10; // Total number of gates before the finish line
+        const GATE_SPACING = 15; // Spacing between gates
+        const CAMERA_Z_OFFSET = 12; // How far camera is behind player
         
         let totalGatesSpawned = 0;
         let finishLine = null;
@@ -181,7 +180,7 @@
 
             // Camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 6, 10);
+            camera.position.set(0, 7, CAMERA_Z_OFFSET); // Use constant for Z offset
             camera.lookAt(0, 0, 0);
 
             // Renderer
@@ -205,7 +204,10 @@
 
             // Create Game Objects
             createPlayer(); // This now initiates loading the model
-            createGround();
+            createGround(); // Create the static ground
+            
+            // Create static gates and finish line (will be reset in startGame)
+            createAllGameElements();
 
             // Event Listeners
             window.addEventListener('resize', onWindowResize);
@@ -244,31 +246,19 @@
             gameSpeed = 10;
             playerTargetX = 0; // Start in the middle
             
-            // Position player on ground based on its model's properties
-            // We use 0 for y-position as the model's origin should be at its feet.
-            player.position.set(0, 0, 0); 
-
+            // Reset player position
+            player.position.set(0, 1.0, 0); // Reset player position above platform
+            
+            // Reset camera position
+            camera.position.set(0, 7, CAMERA_Z_OFFSET);
+            
             gameState = 'playing';
 
-            // Clear old lanes and finish line
-            lanes.forEach(lane => scene.remove(lane.group));
-            lanes = [];
-            feedbackIcons.forEach(icon => scene.remove(icon)); // Clear icons
+            // Clear old icons and recreate all game elements
+            feedbackIcons.forEach(icon => scene.remove(icon));
             feedbackIcons = [];
-            if (finishLine) {
-                scene.remove(finishLine);
-                finishLine = null;
-            }
-            totalGatesSpawned = 0;
-
-            // Create a fixed set of lanes
-            for(let i = 0; i < TOTAL_GATES; i++) {
-                createLanePair(i * 15); // Spawn lanes progressively further
-                totalGatesSpawned++;
-            }
             
-            // Create the finish line after the last gate
-            createFinishLine();
+            createAllGameElements(); // Re-create gates and finish line
 
             // Update UI
             scoreElement.textContent = `Score: 0`;
@@ -283,6 +273,29 @@
                 // FIX: Start at the next available transport tick to avoid time conflicts
                 musicLoop.start(Tone.Transport.nextTickTime);
             }
+        }
+        
+        /**
+         * Wipes and recreates all lanes and the finish line.
+         */
+        function createAllGameElements() {
+            // Clear old lanes and finish line
+            lanes.forEach(lane => scene.remove(lane.group));
+            lanes = [];
+            if (finishLine) {
+                scene.remove(finishLine);
+                finishLine = null;
+            }
+            totalGatesSpawned = 0;
+
+            // Create a fixed set of lanes
+            for(let i = 0; i < TOTAL_GATES; i++) {
+                createLanePair(i * GATE_SPACING); // Spawn lanes progressively further
+                totalGatesSpawned++;
+            }
+            
+            // Create the finish line after the last gate
+            createFinishLine();
         }
         
         /**
@@ -358,30 +371,21 @@
          */
         function createPlayer() {
             const loader = new GLTFLoader();
-
-            // --- IMPORTANT: Error Fix ---
-            // The error `{"isTrusted":true}` is a generic browser security error (CORS).
-            // It means the browser blocked the request to Google Drive.
-            //
-            // TO USE YOUR 'tung_tung_sahur.glb' FILE, YOU MUST:
-            // 1. Save this HTML file and the .glb file in the SAME folder.
-            // 2. Run a LOCAL WEB SERVER in that folder. (e.g., run 'python -m http.server')
-            // 3. Open 'http://localhost:8000' in your browser.
-            //
-            // I am reverting to the public robot model URL so the code runs without error
-            // in this preview environment.
             
-            const modelPath = 'https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb'; // <-- Fallback robot
-            // const modelPath = 'https://drive.google.com/uc?export=download&id=10t9YwDJpEs35wsDfLoH44rOycLwP7E3Z'; // <-- This GDrive link is blocked by browser security (CORS)
-            // const modelPath = './tung_tung_sahur.glb'; // <-- Use this path when running a local server
+            // --- This is the correct, raw CDN link for your GitHub file ---
+            // It uses jsDelivr to serve the file with the correct (CORS) headers.
+            const modelPath = 'https://cdn.jsdelivr.net/gh/Jeromesaurus/3d-Brainrot-Game@eb6eaf963884ce06456ea9ec34d8b8ed0793f480/assets/model/tung_tung_sahur.glb';
 
             loader.load(
                 modelPath,
                 function (gltf) {
                     player = gltf.scene;
-                    player.scale.set(0.5, 0.5, 0.5); // Adjust scale to fit the scene
-                    player.position.set(0, 0, 0); // Adjust initial position (on the ground level)
-                    player.rotation.y = Math.PI; // Rotate to face forward (its back towards camera)
+                    
+                    // --- You may need to adjust these values based on your model ---
+                    player.scale.set(2.0, 2.0, 2.0); // Made player 4x larger (0.5 -> 2.0)
+                    player.position.set(0, 1.0, 0); // Adjusted Y position to be *above* the platform
+                    player.rotation.y = Math.PI; // Rotate 180 degrees to face forward
+                    // ---
                     
                     // Enable shadows for the player model
                     player.traverse(function(child) {
@@ -425,6 +429,17 @@
          * Create the endless ground plane
          */
         function createGround() {
+            // --- New platform calculation ---
+            // Calculate the Z position of the finish line first
+            const lastGateZPos = spawnDistance - ((TOTAL_GATES - 1) * GATE_SPACING); // Z of last gate
+            const finishLineZ = lastGateZPos - GATE_SPACING - 20; // Z of finish line, 20 units past a virtual next gate
+            const startZ = 20; // A buffer in front of the player's start (z=0)
+            
+            // Calculate total length to cover from startZ to finishLineZ, plus a buffer
+            const groundLength = Math.abs(finishLineZ - startZ) + 40; // 40 units of buffer (20 at each end)
+            // Calculate the center Z position of this long plane
+            const groundCenterZ = (startZ + finishLineZ) / 2;
+            
             // --- Create Road Texture on a Canvas ---
             const canvas = document.createElement('canvas');
             const roadWidthPixels = 64; // Make texture narrower
@@ -433,8 +448,8 @@
             canvas.height = roadSegmentPixels;
             const context = canvas.getContext('2d');
             
-            // 1. Fill with dark red color
-            context.fillStyle = '#8B0000'; // Dark Red
+            // 1. Fill with darker red color
+            context.fillStyle = '#660000'; // Darker Red
             context.fillRect(0, 0, roadWidthPixels, roadSegmentPixels);
             
             // 2. Draw solid outer lines
@@ -454,20 +469,30 @@
             const texture = new THREE.CanvasTexture(canvas);
             texture.wrapS = THREE.RepeatWrapping; // Repeat horizontally (though it's solid)
             texture.wrapT = THREE.RepeatWrapping; // Repeat vertically (creates dash)
-            texture.repeat.set(1, 100); // 1x horizontal, 100x vertical repeats
+            
+            // Calculate texture repeat based on ground length
+            const textureRepeats = groundLength / 4; // Adjust '4' to scale dashes
+            texture.repeat.set(1, textureRepeats); 
+            
             texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); // Sharper texture at angles
             texture.minFilter = THREE.LinearMipmapLinearFilter;
             texture.magFilter = THREE.LinearFilter;
             
             // --- Create Ground Mesh ---
-            const groundGeo = new THREE.PlaneGeometry(10, 400); // Made platform narrower: was 30, now 10
+            const groundGeo = new THREE.PlaneGeometry(10, groundLength); // Platform width 10, new calculated length
             const groundMat = new THREE.MeshStandardMaterial({ 
                 map: texture, // Use the canvas texture
                 roughness: 0.8 
             });
+
+            // Remove old ground if it exists
+            if (ground) {
+                scene.remove(ground);
+            }
+
             ground = new THREE.Mesh(groundGeo, groundMat);
             ground.rotation.x = -Math.PI / 2; // Lay flat
-            ground.position.y = 0;
+            ground.position.set(0, 0, groundCenterZ); // Position the static ground
             ground.receiveShadow = true;
             scene.add(ground);
         }
@@ -508,8 +533,8 @@
             rightGate.position.y = 0.1;
             
             // Store data for collision detection
-            leftGate.userData = { isCorrect: !isRightCorrect }; 
-            rightGate.userData = { isCorrect: isRightCorrect }; 
+            leftGate.userData = { isCorrect: !isRightCorrect, collided: false }; 
+            rightGate.userData = { isCorrect: isRightCorrect, collided: false }; 
 
             group.add(leftGate);
             group.add(rightGate);
@@ -546,9 +571,13 @@
             const finishMat = new THREE.MeshStandardMaterial({ map: texture, side: THREE.DoubleSide });
             
             finishLine = new THREE.Mesh(finishGeo, finishMat);
+            
             // Place it 20 units behind the last gate
-            const lastGateZ = TOTAL_GATES * 15;
-            finishLine.position.set(0, 0.1, spawnDistance - lastGateZ - 20); 
+            // This calculation should match the one in createGround
+            const lastGateZPos = spawnDistance - ((TOTAL_GATES - 1) * GATE_SPACING); // Z of last gate
+            const finishLineZ = lastGateZPos - GATE_SPACING - 20; // Z of finish line
+
+            finishLine.position.set(0, 0.1, finishLineZ); 
             finishLine.rotation.x = -Math.PI / 2;
             finishLine.receiveShadow = true;
             finishLine.userData = { collided: false }; // Custom property
@@ -601,24 +630,25 @@
             // Only run game logic if playing and player model is loaded
             if (gameState === 'playing' && isPlayerLoaded) {
                 
-                // --- Player Movement ---
+                // --- Player Movement (X - Horizontal) ---
                 // Smoothly interpolate player's X position to the target lane
                 player.position.x = THREE.MathUtils.lerp(player.position.x, playerTargetX, deltaTime * 10);
+                
+                // --- Player Movement (Z - Forward) ---
+                player.position.z -= gameSpeed * deltaTime;
 
-                // --- Ground Movement ---
-                // Move the ground to give illusion of forward motion
-                ground.position.z += gameSpeed * deltaTime;
-                if (ground.position.z > 200) {
-                    ground.position.z = 0; // Reset ground position
-                }
+                // --- Ground Movement (REMOVED) ---
+                // The ground is now static.
                 
                 // --- Lane Movement & Logic ---
                 for (let i = lanes.length - 1; i >= 0; i--) {
                     const lane = lanes[i];
-                    lane.group.position.z += gameSpeed * deltaTime;
+                    // --- Lane Movement (REMOVED) ---
+                    // lane.group.position.z += gameSpeed * deltaTime; // This is removed
 
                     // --- Collision Detection ---
                     // Check if player has passed the gate (or is inside)
+                    // This logic still works, as player.position.z is now moving towards the static lane.group.position.z
                     if (!lane.collided && lane.group.position.z > player.position.z - safeZone) { // Changed condition
                         
                         let chosenGate = null;
@@ -637,18 +667,28 @@
 
                         // Only process if a lane was actually chosen (or player is exactly in middle)
                         if (chosenGate || Math.abs(player.position.x) < laneCheckTolerance) {
-                             lane.collided = true; // Mark as collided
+                             lane.collided = true; // Mark as collided (for the whole pair)
+                             let gateMeshToHide = null;
+                             
                             if (chosenGate && chosenGate.userData.isCorrect) {
                                 // --- CORRECT ---
                                 score++;
                                 gameSpeed += 0.2; 
                                 if(audioInitialized) sfxSynth.triggerAttackRelease("C5", "16n", Tone.now());
                                 isCorrect = true;
+                                chosenGate.userData.collided = true;
+                                gateMeshToHide = chosenGate;
                             } else {
                                 // --- WRONG --- (includes being in the middle or choosing wrong)
                                 score = Math.max(0, score - 1); 
                                 if(audioInitialized) sfxSynth.triggerAttackRelease("G3", "8n", Tone.now());
                                 isCorrect = false;
+                                
+                                // Also hide the gate if a choice was made
+                                if (chosenGate) {
+                                    chosenGate.userData.collided = true;
+                                    gateMeshToHide = chosenGate;
+                                }
                             }
                             
                             scoreElement.textContent = `Score: ${score}`;
@@ -668,8 +708,8 @@
                             feedbackIcons.push(feedbackIcon);
 
                             // --- Make ONLY the chosen gate disappear ---
-                            if (chosenGate) {
-                                chosenGate.visible = false;
+                            if (gateMeshToHide) {
+                                gateMeshToHide.visible = false;
                             }
                         }
                     }
@@ -677,8 +717,21 @@
                     // --- REMOVED FALLING LOGIC ---
 
                     // --- Lane Cleanup ---
-                    // If the entire lane group is far behind the camera, remove it
-                    if (lane.group.position.z > camera.position.z + 10) { // Added +10 buffer
+                    // If the entire lane group is far behind the player, remove it
+                    if (lane.group.position.z > player.position.z + 20) { // 20 units behind player
+                        // Make sure to dispose of geometry and materials to free memory
+                        lane.leftGate.children.forEach(child => {
+                            if (child.isMesh) {
+                                child.geometry.dispose();
+                                child.material.dispose();
+                            }
+                        });
+                        lane.rightGate.children.forEach(child => {
+                            if (child.isMesh) {
+                                child.geometry.dispose();
+                                child.material.dispose();
+                            }
+                        });
                         scene.remove(lane.group);
                         lanes.splice(i, 1);
                     }
@@ -692,6 +745,8 @@
                     
                     // Cleanup
                     if (icon.material.opacity <= 0) {
+                        icon.material.dispose();
+                        icon.material.map.dispose();
                         scene.remove(icon);
                         feedbackIcons.splice(i, 1);
                     }
@@ -699,7 +754,8 @@
                 
                 // --- Finish Line Logic ---
                 if (finishLine) {
-                    finishLine.position.z += gameSpeed * deltaTime;
+                    // --- Finish Line Movement (REMOVED) ---
+                    // finishLine.position.z += gameSpeed * deltaTime; // This is removed
 
                     // Check for collision
                     if (gameState === 'playing' && !finishLine.userData.collided && finishLine.position.z > player.position.z - safeZone && finishLine.position.z < player.position.z + safeZone) {
@@ -707,11 +763,8 @@
                         handleGameWin();
                     }
 
-                    // Cleanup
-                    if (finishLine.position.z > camera.position.z) {
-                        scene.remove(finishLine);
-                        finishLine = null; 
-                    }
+                    // --- Finish Line Cleanup (REMOVED) ---
+                    // This is handled by startGame() now
                 }
                 
                 // --- Check for game end (backup) ---
@@ -725,8 +778,11 @@
                 // --- Camera Follow ---
                 // Make camera smoothly follow the player's X movement
                 camera.position.x = THREE.MathUtils.lerp(camera.position.x, player.position.x, deltaTime * 2);
+                // Make camera follow player's Z movement with a fixed offset
+                camera.position.z = player.position.z + CAMERA_Z_OFFSET;
+                
                 // Adjust camera to look at the player's model
-                camera.lookAt(player.position.x, player.position.y + 1, player.position.z); // Look slightly above the model's origin
+                camera.lookAt(player.position.x, player.position.y + 2, player.position.z); // Look slightly above the model's origin (center of 4-unit high player)
             }
             
             // Always render the scene
