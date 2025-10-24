@@ -97,6 +97,17 @@
         .game-button:active {
             transform: translateY(0);
         }
+        /* Style for file inputs */
+        input[type="file"]::file-selector-button {
+            background-image: linear-gradient(to right, #4ade80, #3b82f6);
+            color: white;
+            font-weight: bold;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
     </style>
 </head>
 <body class="bg-gray-900">
@@ -108,16 +119,53 @@
     </div>
 
     <!-- Start/Game Over Modal --><div id="modal-container">
-        <div id="start-modal" class="modal">
+        
+        <!-- Mode Select Modal -->
+        <div id="mode-select-modal" class="modal">
             <h1 class="text-4xl font-bold text-white mb-2">3D Choice Runner</h1>
-            <p class="text-lg text-gray-200 mb-4">Slide left or right to make your choice!</p>
-            <button id="start-button" class="game-button">Start Game</button>
+            <p class="text-lg text-gray-200 mb-4">Choose your mode:</p>
+            <button id="normal-mode-btn" class="game-button">Normal Mode</button>
+            <button id="custom-mode-btn" class="game-button mt-4">Custom Mode</button>
+        </div>
+
+        <!-- Custom Game Setup -->
+        <div id="custom-game-modal" class="modal hidden" style="width: 500px; max-width: 90vw;">
+            <h1 class="text-3xl font-bold text-white mb-4">Custom Game Setup</h1>
+            <div id="image-pairs-list" class="w-full h-48 bg-gray-800 rounded-lg p-2 overflow-y-auto mb-4">
+                <p class="text-gray-400">No image pairs added yet.</p>
+            </div>
+            <button id="add-pair-btn" class="game-button">Add Image Pair</button>
+            <button id="start-custom-game-btn" class="game-button mt-4 opacity-50" disabled>Start Custom Game</button>
+            <button id="back-to-mode-btn" class="text-gray-400 mt-2 text-sm">Back to Main Menu</button>
+        </div>
+
+        <!-- Add Image Pair -->
+        <div id="add-image-modal" class="modal hidden" style="width: 600px; max-width: 90vw;">
+            <h1 class="text-3xl font-bold text-white mb-4">Add Image Pair</h1>
+            <div class="flex flex-col md:flex-row justify-around gap-4">
+                <!-- Correct Image -->
+                <div class="flex-1">
+                    <h2 class="text-xl font-bold text-green-400 mb-2">Correct Image</h2>
+                    <input type="file" id="correct-image-input" accept="image/*" class="text-white w-full">
+                    <img id="correct-image-preview" src="https://placehold.co/200x200/333/888?text=Correct" class="w-full h-48 object-cover rounded-lg mt-2">
+                </div>
+                <!-- Wrong Image -->
+                <div class="flex-1">
+                    <h2 class="text-xl font-bold text-red-400 mb-2">Wrong Image</h2>
+                    <input type="file" id="wrong-image-input" accept="image/*" class="text-white w-full">
+                    <img id="wrong-image-preview" src="https://placehold.co/200x200/333/888?text=Wrong" class="w-full h-48 object-cover rounded-lg mt-2">
+                </div>
+            </div>
+            <button id="save-pair-btn" class="game-button mt-6">Save Pair</button>
+            <button id="cancel-add-pair-btn" class="text-gray-400 mt-2 text-sm">Cancel</button>
         </div>
         
+        <!-- Game Over Modal -->
         <div id="game-over-modal" class="modal hidden">
             <h1 id="game-over-title" class="text-4xl font-bold text-white mb-2">Game Over!</h1>
             <p class="text-2xl text-gray-200 mb-4">Final Score: <span id="final-score">0</span></p>
             <button id="restart-button" class="game-button">Play Again</button>
+            <button id="main-menu-btn" class="text-gray-400 mt-2 text-sm">Main Menu</button>
         </div>
     </div>
 
@@ -127,7 +175,7 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         // --- Global Variables ---
-        let scene, camera, renderer, clock;
+        let scene, camera, renderer, clock, textureLoader;
         let player, playerTargetX;
         let ground;
         let lanes = [];
@@ -137,6 +185,10 @@
         let gameState = 'menu'; // 'menu', 'playing', 'gameover'
         let audioInitialized = false;
         let isPlayerLoaded = false; // Flag to ensure player model is loaded before starting
+
+        // --- New Mode Variables ---
+        let customImages = []; // Will store {correct: Texture, wrong: Texture}
+        let isCustomMode = false; // Flag for game mode
 
         // --- Game Constants ---
         const laneWidth = 3; // X position for left/right lanes
@@ -152,13 +204,30 @@
 
         // --- UI Elements ---
         const scoreElement = document.getElementById('score');
-        const startModal = document.getElementById('start-modal');
         const gameOverModal = document.getElementById('game-over-modal');
-        const startButton = document.getElementById('start-button');
         const restartButton = document.getElementById('restart-button');
         const finalScoreElement = document.getElementById('final-score');
         const gameContainer = document.getElementById('game-container');
         const gameOverTitle = document.getElementById('game-over-title');
+        
+        // New UI Elements
+        const modeSelectModal = document.getElementById('mode-select-modal');
+        const customGameModal = document.getElementById('custom-game-modal');
+        const addImageModal = document.getElementById('add-image-modal');
+        const normalModeBtn = document.getElementById('normal-mode-btn');
+        const customModeBtn = document.getElementById('custom-mode-btn');
+        const addPairBtn = document.getElementById('add-pair-btn');
+        const startCustomGameBtn = document.getElementById('start-custom-game-btn');
+        const backToModeBtn = document.getElementById('back-to-mode-btn');
+        const savePairBtn = document.getElementById('save-pair-btn');
+        const cancelAddPairBtn = document.getElementById('cancel-add-pair-btn');
+        const correctImageInput = document.getElementById('correct-image-input');
+        const wrongImageInput = document.getElementById('wrong-image-input');
+        const correctImagePreview = document.getElementById('correct-image-preview');
+        const wrongImagePreview = document.getElementById('wrong-image-preview');
+        const imagePairsList = document.getElementById('image-pairs-list');
+        const mainMenuBtn = document.getElementById('main-menu-btn');
+
 
         // --- Audio Components (Tone.js) ---
         let synth, musicLoop;
@@ -177,6 +246,7 @@
 
             // Clock
             clock = new THREE.Clock();
+            textureLoader = new THREE.TextureLoader(); // Initialize texture loader
 
             // Camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -215,23 +285,133 @@
             // Touch controls
             document.addEventListener('touchstart', onTouchStart, { passive: false });
             document.addEventListener('touchend', onTouchEnd, { passive: false });
-            // UI Buttons
-            startButton.addEventListener('click', startGame);
+            
+            // UI Button Listeners
+            normalModeBtn.addEventListener('click', () => startGame(false));
+            customModeBtn.addEventListener('click', showCustomMenu);
+            addPairBtn.addEventListener('click', showAddPairModal);
+            cancelAddPairBtn.addEventListener('click', hideAddPairModal);
+            backToModeBtn.addEventListener('click', showModeSelect);
+            correctImageInput.addEventListener('change', (e) => handleImagePreview(e, correctImagePreview));
+            wrongImageInput.addEventListener('change', (e) => handleImagePreview(e, wrongImagePreview));
+            savePairBtn.addEventListener('click', saveImagePair);
+            startCustomGameBtn.addEventListener('click', () => startGame(true));
+            mainMenuBtn.addEventListener('click', showModeSelect);
             restartButton.addEventListener('click', restartGame);
+
 
             // Start animation loop
             animate();
         }
 
+        // --- UI Navigation Functions ---
+
+        function showCustomMenu() {
+            modeSelectModal.classList.add('hidden');
+            customGameModal.classList.remove('hidden');
+        }
+
+        function showAddPairModal() {
+            addImageModal.classList.remove('hidden');
+            // Reset previews
+            correctImageInput.value = null;
+            wrongImageInput.value = null;
+            correctImagePreview.src = 'https://placehold.co/200x200/333/888?text=Correct';
+            wrongImagePreview.src = 'https://placehold.co/200x200/333/888?text=Wrong';
+        }
+
+        function hideAddPairModal() {
+            addImageModal.classList.add('hidden');
+        }
+
+        function showModeSelect() {
+            gameOverModal.classList.add('hidden');
+            customGameModal.classList.add('hidden');
+            modeSelectModal.classList.remove('hidden');
+            
+            // Clear custom game setup on exit
+            customImages.forEach(pair => {
+                pair.correct.dispose();
+                pair.wrong.dispose();
+            });
+            customImages = []; 
+            imagePairsList.innerHTML = '<p class="text-gray-400">No image pairs added yet.</p>';
+            startCustomGameBtn.classList.add('opacity-50');
+            startCustomGameBtn.disabled = true;
+        }
+
+        // --- Custom Mode Image Handling ---
+
+        function handleImagePreview(event, previewElement) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewElement.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function saveImagePair() {
+            const correctDataURL = correctImagePreview.src;
+            const wrongDataURL = wrongImagePreview.src;
+
+            // Check if images are still placeholders
+            if (correctDataURL.startsWith('https://placehold') || wrongDataURL.startsWith('https://placehold')) {
+                console.warn("Please select both a correct and a wrong image.");
+                // We could show a UI error here
+                return;
+            }
+
+            // Pre-load textures and store them
+            const correctTexture = textureLoader.load(correctDataURL);
+            const wrongTexture = textureLoader.load(wrongDataURL);
+            
+            customImages.push({ correct: correctTexture, wrong: wrongTexture });
+            
+            updateImagePairsList(correctDataURL, wrongDataURL);
+            hideAddPairModal();
+
+            // Enable start button
+            startCustomGameBtn.classList.remove('opacity-50');
+            startCustomGameBtn.disabled = false;
+        }
+
+        function updateImagePairsList(correctDataURL, wrongDataURL) {
+            if (customImages.length === 1) {
+                imagePairsList.innerHTML = ''; // Clear "No image pairs" message
+            }
+            
+            // Add a visual representation of the pair to the list
+            imagePairsList.innerHTML += `
+                <div class="flex items-center p-1 bg-gray-700 rounded mb-1">
+                    <img src="${correctDataURL}" class="w-10 h-10 rounded object-cover" alt="Correct">
+                    <span class="text-green-400 mx-2 font-bold">VS</span>
+                    <img src="${wrongDataURL}" class="w-10 h-10 rounded object-cover" alt="Wrong">
+                </div>
+            `;
+        }
+
+        // --- Game Logic Functions ---
+
         /**
          * Start the game logic and audio
          */
-        async function startGame() {
+        async function startGame(isCustom = false) {
+            isCustomMode = isCustom; // Set game mode
+
             if (!isPlayerLoaded) {
                 console.warn("Player model not yet loaded. Please wait.");
-                // Optionally show a loading spinner or disable the button
                 return;
             }
+            
+            if (isCustomMode && customImages.length === 0) {
+                console.warn("No custom images loaded. Cannot start custom game.");
+                // We could show a UI error here
+                return;
+            }
+
 
             // Initialize audio on first user gesture
             if (!audioInitialized) {
@@ -247,7 +427,7 @@
             playerTargetX = 0; // Start in the middle
             
             // Reset player position
-            player.position.set(0, 1.0, 0); // Reset player position above platform
+            player.position.set(0, 1.5, 0); // Reset player position above platform (raised)
             
             // Reset camera position
             camera.position.set(0, 7, CAMERA_Z_OFFSET);
@@ -263,14 +443,13 @@
             // Update UI
             scoreElement.textContent = `Score: 0`;
             scoreElement.classList.remove('hidden');
-            startModal.classList.add('hidden');
-            gameOverModal.classList.add('hidden');
-            gameOverTitle.textContent = 'Game Over!'; // Reset title
+            modeSelectModal.classList.add('hidden'); // Hide mode select
+            customGameModal.classList.add('hidden'); // Hide custom setup
+            gameOverModal.classList.add('hidden'); // Hide game over
             
             // Start music
             if (musicLoop) {
                 musicLoop.stop(); // Stop loop first to prevent conflicts
-                // FIX: Start at the next available transport tick to avoid time conflicts
                 musicLoop.start(Tone.Transport.nextTickTime);
             }
         }
@@ -280,7 +459,10 @@
          */
         function createAllGameElements() {
             // Clear old lanes and finish line
-            lanes.forEach(lane => scene.remove(lane.group));
+            lanes.forEach(lane => {
+                scene.remove(lane.group);
+                // TODO: Add proper disposal of geometries and materials here
+            });
             lanes = [];
             if (finishLine) {
                 scene.remove(finishLine);
@@ -302,8 +484,8 @@
          * Restart the game (wrapper for startGame)
          */
         function restartGame() {
-            // A small delay to prevent accidental double-clicks
-            setTimeout(startGame, 100);
+            // Restart in the *current* mode
+            setTimeout(() => startGame(isCustomMode), 100);
         }
 
         /**
@@ -371,128 +553,89 @@
          */
         function createPlayer() {
             const loader = new GLTFLoader();
-            
-            // --- This is the correct, raw CDN link for your GitHub file ---
-            // It uses jsDelivr to serve the file with the correct (CORS) headers.
             const modelPath = 'https://cdn.jsdelivr.net/gh/Jeromesaurus/3d-Brainrot-Game@eb6eaf963884ce06456ea9ec34d8b8ed0793f480/assets/model/tung_tung_sahur.glb';
 
             loader.load(
                 modelPath,
                 function (gltf) {
                     player = gltf.scene;
-                    
-                    // --- You may need to adjust these values based on your model ---
-                    player.scale.set(2.0, 2.0, 2.0); // Made player 4x larger (0.5 -> 2.0)
-                    player.position.set(0, 1.0, 0); // Adjusted Y position to be *above* the platform
-                    player.rotation.y = Math.PI; // Rotate 180 degrees to face forward
-                    // ---
-                    
-                    // Enable shadows for the player model
+                    player.scale.set(2.0, 2.0, 2.0); 
+                    player.position.set(0, 1.5, 0); // Raised Y position
+                    player.rotation.y = Math.PI;
                     player.traverse(function(child) {
                         if (child.isMesh) {
                             child.castShadow = true;
-                            child.receiveShadow = true; // Also receive shadows from environment
+                            child.receiveShadow = true;
                         }
                     });
-
                     scene.add(player);
-                    isPlayerLoaded = true; // Mark player as loaded
-                    console.log("Player model loaded:", modelPath);
+                    isPlayerLoaded = true;
                 },
-                function (xhr) {
-                    console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-                },
+                undefined, // onProgress callback not needed
                 function (error) {
                     console.error('An error occurred while loading the player model:', error);
-                    console.error("This is likely a (CORS) security error. The browser is blocking the request to the model's URL.");
-                    console.error("To load your custom 'tung_tung_sahur.glb' file, you MUST save the .html and .glb files in the same folder and run a local web server (e.g., 'python -m http.server')");
-                    
                     // Fallback to a simple cylinder if model loading fails
                     const playerGeo = new THREE.CylinderGeometry(0.5, 0.5, 2, 16);
-                    const playerMat = new THREE.MeshStandardMaterial({ 
-                        color: 0x3b82f6,
-                        roughness: 0.3,
-                        metalness: 0.5 
-                    });
+                    const playerMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
                     player = new THREE.Mesh(playerGeo, playerMat);
                     player.position.set(0, 1, 0);
                     player.castShadow = true;
                     scene.add(player);
                     isPlayerLoaded = true; // Mark as loaded even if fallback
-                    console.warn("Using fallback player (cylinder) due to model loading error.");
                 }
             );
-            playerTargetX = 0; // Initial target lane, set immediately
+            playerTargetX = 0;
         }
 
         /**
          * Create the endless ground plane
          */
         function createGround() {
-            // --- New platform calculation ---
-            // Calculate the Z position of the finish line first
-            const lastGateZPos = spawnDistance - ((TOTAL_GATES - 1) * GATE_SPACING); // Z of last gate
-            const finishLineZ = lastGateZPos - GATE_SPACING - 20; // Z of finish line, 20 units past a virtual next gate
-            const startZ = 20; // A buffer in front of the player's start (z=0)
-            
-            // Calculate total length to cover from startZ to finishLineZ, plus a buffer
-            const groundLength = Math.abs(finishLineZ - startZ) + 40; // 40 units of buffer (20 at each end)
-            // Calculate the center Z position of this long plane
+            const lastGateZPos = spawnDistance - ((TOTAL_GATES - 1) * GATE_SPACING);
+            const finishLineZ = lastGateZPos - GATE_SPACING - 20;
+            const startZ = 20; 
+            const groundLength = Math.abs(finishLineZ - startZ) + 40;
             const groundCenterZ = (startZ + finishLineZ) / 2;
             
-            // --- Create Road Texture on a Canvas ---
             const canvas = document.createElement('canvas');
-            const roadWidthPixels = 64; // Make texture narrower
-            const roadSegmentPixels = 64; // Texture height (for repeating dash)
+            const roadWidthPixels = 64;
+            const roadSegmentPixels = 64;
             canvas.width = roadWidthPixels;
             canvas.height = roadSegmentPixels;
             const context = canvas.getContext('2d');
             
-            // 1. Fill with darker red color
             context.fillStyle = '#660000'; // Darker Red
             context.fillRect(0, 0, roadWidthPixels, roadSegmentPixels);
             
-            // 2. Draw solid outer lines
             context.fillStyle = '#ffffff';
-            const linePixelWidth = 2; // Thin white line
-            const edgePadding = 4; // Padding from edge
-            context.fillRect(edgePadding, 0, linePixelWidth, roadSegmentPixels); // Left line
-            context.fillRect(roadWidthPixels - edgePadding - linePixelWidth, 0, linePixelWidth, roadSegmentPixels); // Right line
+            const linePixelWidth = 2;
+            const edgePadding = 4; 
+            context.fillRect(edgePadding, 0, linePixelWidth, roadSegmentPixels);
+            context.fillRect(roadWidthPixels - edgePadding - linePixelWidth, 0, linePixelWidth, roadSegmentPixels);
             
-            // 3. Draw dashed center line
-            const dashPixelWidth = 4; // Width of the dash
-            const dashPixelLength = roadSegmentPixels / 2; // Length of the dash (half of segment height)
-            context.fillRect(roadWidthPixels / 2 - dashPixelWidth / 2, 0, dashPixelWidth, dashPixelLength); // Top half dash
-            // The bottom half is empty, creating the gap when repeated
+            const dashPixelWidth = 4;
+            const dashPixelLength = roadSegmentPixels / 2;
+            context.fillRect(roadWidthPixels / 2 - dashPixelWidth / 2, 0, dashPixelWidth, dashPixelLength);
             
-            // --- Create Texture from Canvas ---
             const texture = new THREE.CanvasTexture(canvas);
-            texture.wrapS = THREE.RepeatWrapping; // Repeat horizontally (though it's solid)
-            texture.wrapT = THREE.RepeatWrapping; // Repeat vertically (creates dash)
-            
-            // Calculate texture repeat based on ground length
-            const textureRepeats = groundLength / 4; // Adjust '4' to scale dashes
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            const textureRepeats = groundLength / 4;
             texture.repeat.set(1, textureRepeats); 
-            
-            texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); // Sharper texture at angles
+            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
             texture.minFilter = THREE.LinearMipmapLinearFilter;
             texture.magFilter = THREE.LinearFilter;
             
-            // --- Create Ground Mesh ---
-            const groundGeo = new THREE.PlaneGeometry(10, groundLength); // Platform width 10, new calculated length
-            const groundMat = new THREE.MeshStandardMaterial({ 
-                map: texture, // Use the canvas texture
-                roughness: 0.8 
-            });
+            const groundGeo = new THREE.PlaneGeometry(10, groundLength);
+            const groundMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.8 });
 
-            // Remove old ground if it exists
             if (ground) {
                 scene.remove(ground);
             }
 
             ground = new THREE.Mesh(groundGeo, groundMat);
-            ground.rotation.x = -Math.PI / 2; // Lay flat
-            ground.position.set(0, 0, groundCenterZ); // Position the static ground
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.set(0, 0, groundCenterZ);
             ground.receiveShadow = true;
             scene.add(ground);
         }
@@ -505,13 +648,29 @@
             const group = new THREE.Group();
             const isRightCorrect = Math.random() > 0.5;
             
-            const correctGateMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.7, metalness: 0.1 }); // Green
-            const wrongGateMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.7, metalness: 0.1 }); // Red
-            
-            const gateGeo = new THREE.BoxGeometry(laneWidth * 1.8, 4, 0.2); // width, height, depth
-            
-            const leftGateMesh = new THREE.Mesh(gateGeo, isRightCorrect ? wrongGateMat : correctGateMat);
-            const rightGateMesh = new THREE.Mesh(gateGeo, isRightCorrect ? correctGateMat : wrongGateMat);
+            let leftGateMesh, rightGateMesh;
+
+            if (isCustomMode) {
+                // --- CUSTOM MODE: Use Images ---
+                const pair = customImages[Math.floor(Math.random() * customImages.length)];
+                const imgMatCorrect = new THREE.MeshBasicMaterial({ map: pair.correct, side: THREE.DoubleSide });
+                const imgMatWrong = new THREE.MeshBasicMaterial({ map: pair.wrong, side: THREE.DoubleSide });
+                
+                const gateGeo = new THREE.PlaneGeometry(laneWidth * 1.8, 4); // Flat plane
+                
+                leftGateMesh = new THREE.Mesh(gateGeo, isRightCorrect ? imgMatWrong : imgMatCorrect);
+                rightGateMesh = new THREE.Mesh(gateGeo, isRightCorrect ? imgMatCorrect : imgMatWrong);
+
+            } else {
+                // --- NORMAL MODE: Use Colors ---
+                const correctGateMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.7, metalness: 0.1 }); // Green
+                const wrongGateMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.7, metalness: 0.1 }); // Red
+                
+                const gateGeo = new THREE.BoxGeometry(laneWidth * 1.8, 4, 0.2); // 3D box
+                
+                leftGateMesh = new THREE.Mesh(gateGeo, isRightCorrect ? wrongGateMat : correctGateMat);
+                rightGateMesh = new THREE.Mesh(gateGeo, isRightCorrect ? correctGateMat : wrongGateMat);
+            }
 
             leftGateMesh.position.y = 2; // height / 2
             rightGateMesh.position.y = 2; // height / 2
@@ -519,7 +678,6 @@
             leftGateMesh.castShadow = false; // Optimization: Remove shadow
             rightGateMesh.castShadow = false; // Optimization: Remove shadow
 
-            // --- Create Gate Anchors ---
             const leftGate = new THREE.Group();
             const rightGate = new THREE.Group();
             
@@ -549,7 +707,6 @@
          * Create the finish line
          */
         function createFinishLine() {
-            // Create a canvas for the checkerboard texture
             const canvas = document.createElement('canvas');
             canvas.width = 16;
             canvas.height = 16;
@@ -564,30 +721,26 @@
             const texture = new THREE.CanvasTexture(canvas);
             texture.wrapS = THREE.RepeatWrapping;
             texture.wrapT = THREE.RepeatWrapping;
-            texture.repeat.set(10, 2); // Repeat pattern
-            texture.magFilter = THREE.NearestFilter; // Pixelated look
+            texture.repeat.set(10, 2);
+            texture.magFilter = THREE.NearestFilter;
 
             const finishGeo = new THREE.PlaneGeometry(laneWidth * 4, 4);
             const finishMat = new THREE.MeshStandardMaterial({ map: texture, side: THREE.DoubleSide });
             
             finishLine = new THREE.Mesh(finishGeo, finishMat);
             
-            // Place it 20 units behind the last gate
-            // This calculation should match the one in createGround
-            const lastGateZPos = spawnDistance - ((TOTAL_GATES - 1) * GATE_SPACING); // Z of last gate
-            const finishLineZ = lastGateZPos - GATE_SPACING - 20; // Z of finish line
+            const lastGateZPos = spawnDistance - ((TOTAL_GATES - 1) * GATE_SPACING);
+            const finishLineZ = lastGateZPos - GATE_SPACING - 20;
 
             finishLine.position.set(0, 0.1, finishLineZ); 
             finishLine.rotation.x = -Math.PI / 2;
             finishLine.receiveShadow = true;
-            finishLine.userData = { collided: false }; // Custom property
+            finishLine.userData = { collided: false };
             scene.add(finishLine);
         }
 
         /**
          * Creates a text-based sprite (e.g., ✓ or ✗)
-         * @param {string} text - The character to display
-         * @param {string} color - The color of the text
          */
         function createFeedbackSprite(text, color) {
             const canvas = document.createElement('canvas');
@@ -596,11 +749,9 @@
             canvas.height = size;
             const context = canvas.getContext('2d');
             
-            // Transparent background
             context.fillStyle = 'rgba(0, 0, 0, 0)';
             context.fillRect(0, 0, size, size);
             
-            // Draw the text
             context.font = 'bold 50px Arial';
             context.fillStyle = color;
             context.textAlign = 'center';
@@ -615,7 +766,7 @@
             });
             
             const sprite = new THREE.Sprite(material);
-            sprite.scale.set(3, 3, 1); // Make it visible
+            sprite.scale.set(3, 3, 1);
             return sprite;
         }
 
@@ -631,31 +782,22 @@
             if (gameState === 'playing' && isPlayerLoaded) {
                 
                 // --- Player Movement (X - Horizontal) ---
-                // Smoothly interpolate player's X position to the target lane
                 player.position.x = THREE.MathUtils.lerp(player.position.x, playerTargetX, deltaTime * 10);
                 
                 // --- Player Movement (Z - Forward) ---
                 player.position.z -= gameSpeed * deltaTime;
-
-                // --- Ground Movement (REMOVED) ---
-                // The ground is now static.
                 
                 // --- Lane Movement & Logic ---
                 for (let i = lanes.length - 1; i >= 0; i--) {
                     const lane = lanes[i];
-                    // --- Lane Movement (REMOVED) ---
-                    // lane.group.position.z += gameSpeed * deltaTime; // This is removed
 
                     // --- Collision Detection ---
-                    // Check if player has passed the gate (or is inside)
-                    // This logic still works, as player.position.z is now moving towards the static lane.group.position.z
-                    if (!lane.collided && lane.group.position.z > player.position.z - safeZone) { // Changed condition
+                    if (!lane.collided && lane.group.position.z > player.position.z - safeZone) { 
                         
                         let chosenGate = null;
                         let isCorrect = false;
                         let feedbackX = player.position.x; 
 
-                        // Determine if player chose left or right lane
                         if (Math.abs(player.position.x - (-laneWidth)) < laneCheckTolerance) {
                             chosenGate = lane.leftGate;
                             feedbackX = lane.leftGate.parent.position.x;
@@ -665,26 +807,24 @@
                             feedbackX = lane.rightGate.parent.position.x;
                         }
 
-                        // Only process if a lane was actually chosen (or player is exactly in middle)
                         if (chosenGate || Math.abs(player.position.x) < laneCheckTolerance) {
-                             lane.collided = true; // Mark as collided (for the whole pair)
+                             lane.collided = true;
                              let gateMeshToHide = null;
                              
                             if (chosenGate && chosenGate.userData.isCorrect) {
                                 // --- CORRECT ---
                                 score++;
                                 gameSpeed += 0.2; 
-                                if(audioInitialized) sfxSynth.triggerAttackRelease("C5", "16n", Tone.now());
+                                if(audioInitialized) sfxSynth.triggerAttackRelease("C5", "16n"); // Removed Tone.now()
                                 isCorrect = true;
                                 chosenGate.userData.collided = true;
                                 gateMeshToHide = chosenGate;
                             } else {
-                                // --- WRONG --- (includes being in the middle or choosing wrong)
+                                // --- WRONG ---
                                 score = Math.max(0, score - 1); 
-                                if(audioInitialized) sfxSynth.triggerAttackRelease("G3", "8n", Tone.now());
+                                if(audioInitialized) sfxSynth.triggerAttackRelease("G3", "8n"); // Removed Tone.now()
                                 isCorrect = false;
                                 
-                                // Also hide the gate if a choice was made
                                 if (chosenGate) {
                                     chosenGate.userData.collided = true;
                                     gateMeshToHide = chosenGate;
@@ -709,26 +849,25 @@
 
                             // --- Make ONLY the chosen gate disappear ---
                             if (gateMeshToHide) {
-                                gateMeshToHide.visible = false;
+                                // Find the mesh inside the group and hide it
+                                gateMeshToHide.children.forEach(child => child.visible = false);
                             }
                         }
                     }
                     
-                    // --- REMOVED FALLING LOGIC ---
-
                     // --- Lane Cleanup ---
-                    // If the entire lane group is far behind the player, remove it
-                    if (lane.group.position.z > player.position.z + 20) { // 20 units behind player
-                        // Make sure to dispose of geometry and materials to free memory
+                    if (lane.group.position.z > player.position.z + 20) {
                         lane.leftGate.children.forEach(child => {
                             if (child.isMesh) {
                                 child.geometry.dispose();
+                                if (child.material.map) child.material.map.dispose();
                                 child.material.dispose();
                             }
                         });
                         lane.rightGate.children.forEach(child => {
                             if (child.isMesh) {
                                 child.geometry.dispose();
+                                if (child.material.map) child.material.map.dispose();
                                 child.material.dispose();
                             }
                         });
@@ -743,7 +882,6 @@
                     icon.position.y += 3 * deltaTime; // Move up
                     icon.material.opacity -= 1.5 * deltaTime; // Fade out
                     
-                    // Cleanup
                     if (icon.material.opacity <= 0) {
                         icon.material.dispose();
                         icon.material.map.dispose();
@@ -754,35 +892,21 @@
                 
                 // --- Finish Line Logic ---
                 if (finishLine) {
-                    // --- Finish Line Movement (REMOVED) ---
-                    // finishLine.position.z += gameSpeed * deltaTime; // This is removed
-
-                    // Check for collision
                     if (gameState === 'playing' && !finishLine.userData.collided && finishLine.position.z > player.position.z - safeZone && finishLine.position.z < player.position.z + safeZone) {
                         finishLine.userData.collided = true;
                         handleGameWin();
                     }
-
-                    // --- Finish Line Cleanup (REMOVED) ---
-                    // This is handled by startGame() now
                 }
                 
                 // --- Check for game end (backup) ---
                 if (lanes.length === 0 && !finishLine && totalGatesSpawned >= TOTAL_GATES && gameState === 'playing') {
-                    // This condition means all gates are gone AND the finish line is gone,
-                    // but the game is still 'playing' (win wasn't triggered).
-                    // This is a backup game over condition.
                     handleGameOver();
                 }
 
                 // --- Camera Follow ---
-                // Make camera smoothly follow the player's X movement
-                camera.position.x = THREE.MathUtils.lerp(camera.position.x, player.position.x, deltaTime * 2);
-                // Make camera follow player's Z movement with a fixed offset
+                camera.position.x = 0;
                 camera.position.z = player.position.z + CAMERA_Z_OFFSET;
-                
-                // Adjust camera to look at the player's model
-                camera.lookAt(player.position.x, player.position.y + 2, player.position.z); // Look slightly above the model's origin (center of 4-unit high player)
+                camera.lookAt(0, 2, player.position.z);
             }
             
             // Always render the scene
@@ -791,34 +915,26 @@
 
         // --- Event Handlers ---
 
-        /**
-         * Handle window resize to keep canvas responsive
-         */
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        /**
-         * Handle keyboard controls (Arrow Keys)
-         */
         function onKeyDown(event) {
             if (gameState !== 'playing') return;
 
             if (event.code === 'ArrowLeft' || event.code === 'KeyA') {
-                playerTargetX = -laneWidth; // Move to left lane
+                playerTargetX = -laneWidth;
             } else if (event.code === 'ArrowRight' || event.code === 'KeyD') {
-                playerTargetX = laneWidth; // Move to right lane
+                playerTargetX = laneWidth;
             }
         }
         
-        // Touch Controls
         let touchStartPos = null;
         
         function onTouchStart(event) {
             if (gameState !== 'playing') return;
-            // event.preventDefault(); // Can cause issues, removed for now
             touchStartPos = { 
                 x: event.touches[0].clientX,
                 y: event.touches[0].clientY
@@ -836,8 +952,7 @@
             const deltaX = touchEndPos.x - touchStartPos.x;
             const deltaY = touchEndPos.y - touchStartPos.y;
 
-            // Prioritize horizontal movement for swipe
-            if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) { // 50px threshold
+            if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) { 
                 if (deltaX < 0) { // Swipe Left
                     playerTargetX = -laneWidth;
                 } else { // Swipe Right
